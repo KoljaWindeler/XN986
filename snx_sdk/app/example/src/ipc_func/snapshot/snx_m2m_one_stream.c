@@ -20,7 +20,7 @@
  * Example Code Configuration
  *----------------------------------------------------------------------------*/
 
-#define SNX_SNAPSHOT_VER	"V0.1.1"
+#define SNX_SNAPSHOT_VER	"V0.1.2"
 #define	TEMPLATE_LENGTH	32
 
 
@@ -129,15 +129,40 @@ int main(int argc, char **argv)
 	int osd_en = 1;
 	int osd_x = -1;
 	int osd_y = 0;
+	int osd_color = 0x00FF00;
+	time_t timep;
+	struct tm *p;
 
+	// motion detection
+	char syscmd_md_instant_start[150];
+	char syscmd_md_delayed_start[150];
+	char syscmd_md_motion[150];
+	char syscmd_md_delayed_end[150];
+	memset(syscmd_md_instant_start, 0x00, sizeof(syscmd_md_instant_start));
+	memset(syscmd_md_delayed_start, 0x00, sizeof(syscmd_md_delayed_start));
+	memset(syscmd_md_motion, 0x00, sizeof(syscmd_md_motion));
+	memset(syscmd_md_delayed_end, 0x00, sizeof(syscmd_md_delayed_end));
+	unsigned int mask[6];
+	//unsigned int reports[6];
+	int md_threshold = 320;
+	int md_int_threshold = 1;
+	int md_timeout = 100; //ms ?
+	int status;
+	double remaining_wait_us;
+	int frames_with_motion_threshold = 2;
+	int frames_with_motion = 0;
+	int frames_with_no_motion_threshold = 5;
+	int frames_with_no_motion = 0;
+	int motion=0;
+	int pre_motion=0;
 
-	//struct stat tst;
+	clock_t begin_time = clock();
+	clock_t end_time = clock();
 
 	/*--------------------------------------------------------
 		stream config setup
 	---------------------------------------------------------*/
 	memset(syscmd, 0x00, sizeof(outputpath));
-
 
 	m2m->isp_fps = FRAME_RATE;
 	m2m->m2m_buffers = 2;
@@ -168,50 +193,69 @@ int main(int argc, char **argv)
 	stream1->yuv_frame = YUV_DIV_RATE;
 	stream1->y_only = 0;
 
-	while ((c = getopt (argc, argv, "hmo:i:f:W:H:q:a:e:x:z:n:s:drv:y")) != -1)
+	while ((c = getopt (argc, argv, "hmo:i:f:W:H:q:N:b:c:e:T:j:k:l:m:M:C:X:Y:n:s:drv:y")) != -1)
 	{
 		switch (c)
 		{
-			case 'o':	strcpy(outputpath, optarg); break;
-			case 'a': strcpy(cam_name, optarg); break;
-			case 'e': if(atoi(optarg)==0) { osd_en=0; }; break;
-			case 'x':	osd_x = atoi(optarg); break;
-			case 'z': osd_y = atoi(optarg); break;
-			case 'm':	m2m->m2m = 1; break;
-			case 'i':	m2m->isp_fps = atoi(optarg); break;
-			case 'f':	m2m->codec_fps = atoi(optarg); break;
-			case 'W':	m2m->width = atoi(optarg); break;
-			case 'H':	m2m->height = atoi(optarg); break;
-			case 'q':	m2m->qp = atoi(optarg); break;
-			case 'n':	stream1->frame_num = atoi(optarg); break;
-			case 's':	m2m->scale = atoi(optarg); break;
-			case 'd':	stream1->debug = 1; break;
-			case 'r':	yuv_output = 1; break;
-			case 'v':	stream1->yuv_frame = atoi(optarg); break;
-			case 'y':	stream1->y_only = 1; break;
+			case 'o':	strcpy(outputpath, optarg); 											break;
+			case 'N': strcpy(cam_name, optarg); 												break;
+			case 'b': strcpy(syscmd_md_instant_start, optarg); 					break;
+			case 'l': strcpy(syscmd_md_delayed_start, optarg); 					break;
+			case 'M': strcpy(syscmd_md_motion, optarg); 								break;
+			case 'c': strcpy(syscmd_md_delayed_end, optarg); 						break;
+			case 'T': md_threshold = atoi(optarg); 											break;
+			case 'j': frames_with_no_motion_threshold = atoi(optarg); 	break;
+			case 'k': frames_with_motion_threshold = atoi(optarg); 			break;
+			case 'e': if(atoi(optarg)==0) { osd_en=0; }; 								break;
+			case 'C': osd_color=atoi(optarg);				 										break;
+			case 'X':	osd_x = atoi(optarg); 														break;
+			case 'Y': osd_y = atoi(optarg); 														break;
+
+			case 'm':	m2m->m2m = 1; 																		break;
+			case 'i':	m2m->isp_fps = atoi(optarg);  										break;
+			case 'f':	m2m->codec_fps = atoi(optarg);  									break;
+			case 'W':	m2m->width = atoi(optarg); 												break;
+			case 'H':	m2m->height = atoi(optarg); 											break;
+			case 'q':	m2m->qp = atoi(optarg); 													break;
+			case 'n':	stream1->frame_num = atoi(optarg); 								break;
+			case 's':	m2m->scale = atoi(optarg); 												break;
+			case 'd':	stream1->debug = 1; 															break;
+			case 'r':	yuv_output = 1; 																	break;
+			case 'v':	stream1->yuv_frame = atoi(optarg); 								break;
+			case 'y':	stream1->y_only = 1; 															break;
 			case 'h':
 			default:
 			{
 				printf("Usage: %s [options]/n\n"
 				"Version: %s\n"
 				"Options:\n"
-				"\t-h			Print this message\n"
-		        "\t-m			m2m path enable (default is Capture Path)\n"
-						"\t-a			add cam name to OSD\n"
-						"\t-e			overlay on/off (1/0) (default is 1)\n"
-						"\t-x			overlay x-position (default is -1 = center)\n"
-						"\t-z			overlay y-position (default is 0)\n"
-		        "\t-o			outputPath (default is /tmp)\n"
-		        "\t-i			isp fps (Only in M2M path, default is 30)\n"
-		        "\t-f			codec fps (default is 30 fps, NOT more than M2M path)\n"
-		        "\t-W			Capture Width (Default is 1280, depends on M2M path)\n"
-		        "\t-H			Capture Height (Default is 720, depends on M2M path)\n"
-		        "\t-q			JPEG QP (Default is 60)\n"
-		        "\t-n			Num of Frames to capture (Default is 3)\n"
-		        "\t-s			scaling mode (default is 1,  1: 1, 2: 1/2, 4: 1/4 )\n"
-		        "\t-r			YUV data output enable\n"
-		        "\t-v			YUV capture rate divider (default is 5)\n"
-		        "\tM2M Example:   %s -m -i 30 -f 30 -q 120 /dev/video1\n"
+						"\t-h		Print this message\n"
+		        "\t-m		m2m path enable (default is Capture Path)\n"
+						"\t-o		outputPath (default is /tmp)\n"
+						"\t-i		isp fps (Only in M2M path, default is 30)\n"
+						"\t-f		codec fps (default is 30 fps, NOT more than M2M path)\n"
+						"\t-W		Capture Width (Default is 1280, depends on M2M path)\n"
+						"\t-H		Capture Height (Default is 720, depends on M2M path)\n"
+						"\t-q		JPEG QP (Default is 60)\n"
+						"\t-n		Num of Frames to capture (Default is 3)\n"
+						"\t-s		scaling mode (default is 1,  1: 1, 2: 1/2, 4: 1/4 )\n"
+						"\t-r		YUV data output enable\n"
+						"\t-v		YUV capture rate divider (default is 5)\n"
+
+						"\t-b		Command to execute on motion instantly (default is none)\n"
+						"\t-l		Command to execute after '-k' motion frames (default is none)\n"
+						"\t-M		Command to execute on each motion frames (default is none)\n"
+						"\t-c		Command to execute afer '-j' no motion frames (default is none)\n"
+						"\t-T		Motion detection threshold (default is 320)\n"
+						"\t-j		Num of no motion frames before calling motion end command (default is 5)\n"
+						"\t-k		Num of motion frames before calling motion start command (default is 2)\n"
+						"\t-N		Cam name for OSD\n"
+						"\t-e		Overlay on/off (1/0) (default is 1)\n"
+						"\t-X		Overlay x-position (default is -1 = center)\n"
+						"\t-Y		Overlay y-position (default is 0)\n"
+						"\t-C		Overlay color (default is 0x00FF00)\n"
+
+						"\tM2M Example:   %s -m -i 30 -f 30 -q 120 /dev/video1\n"
 		        "\tcapture Example:   %s -n 1 -q 120 /dev/video1\n"
 				"\n"
 				"", argv[0],SNX_SNAPSHOT_VER, argv[0],argv[0]);
@@ -224,32 +268,36 @@ int main(int argc, char **argv)
 	{
 		strcpy(m2m->codec_dev,argv[optind]);
 	}
-///////////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////// OSD CONFIG /////////////////////////////////////////////
 		//--osdset-en 1
 	if(osd_en){
 		snx_isp_osd_enable_set(0, 1);
-		//--osdset-ts 1
 		snx_isp_osd_timestamp_set(0, 0); // we do that ourself
-		//--osdset-gain 2
 		snx_isp_osd_gain_set(0, 2);
-		//--gtransp 0x0
 		snx_isp_osd_bg_transp_set(0, 0);
-		//--osdset-position 0,-30
+		snx_isp_osd_txt_color_set(0,osd_color);
+
 		if(osd_x==-1){ // calc center
 			osd_x=(m2m->width-32*(15+strlen(cam_name)))/2;
+		}
+		if(osd_y==-1){ // calc center
+			osd_y=(m2m->height-32)/2;
 		}
 		snx_isp_osd_position_set(0, osd_x, osd_y);
 	} else {
 		snx_isp_osd_enable_set(0, 0);
 	}
+	///////////////////// OSD CONFIG /////////////////////////////////////////////
 
-
-	time_t timep;
-	struct tm *p;
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
+	///////////////////// MOTION CONFIG //////////////////////////////////////////
+	snx_isp_md_enable_set(0x0);		/* disable motion detection */
+	snx_isp_md_threshold_set(md_threshold); /* set threshold parameter to isp driver */
+	snx_isp_md_int_threshold_set(md_int_threshold); /* set int_threshold parameter to isp driver */
+	memset(mask, 0x0, sizeof(mask)); /* detect all areas */
+	snx_isp_md_block_mask_set(mask); /* set mask blosks to isp driver */
+	snx_isp_md_int_timeout_set(md_timeout); /* Interfaces provided by ISP driver:	*/
+	snx_isp_md_enable_set(0x1); /* enable motion detection */
+	///////////////////// MOTION CONFIG //////////////////////////////////////////
 	if (yuv_output) {
 		if (stream1->yuv_frame <= 0) {
 			printf("Wrong YUV Rate divider parameter (%d)\n", stream1->yuv_frame);
@@ -263,25 +311,36 @@ int main(int argc, char **argv)
 		m2m->codec_fmt = V4L2_PIX_FMT_SNX420;
 	}
 
-			printf("\n\n------- V4L2 Infomation -------- \n");
-			printf("Device Name: %s\n", m2m->codec_dev);
-			printf("m2m_en: %d\n", m2m->m2m);
-			printf("codec_dev: %s\n", m2m->codec_dev);
-			printf("codec_fps: %d\n", m2m->codec_fps);
-			if(m2m->m2m)
-				printf("isp_fps: %d\n", m2m->isp_fps);
-			printf("width: %d\n", m2m->width);
-			printf("height: %d\n", m2m->height);
-			printf("scale: %d\n", m2m->scale);
-			printf("qp: %d\n", m2m->qp);
-			printf("outputpath: %s\n", outputpath);
-			if(yuv_output) {
-				printf("YUV Output enable: %d\n", yuv_output);
-				printf("YUV Rate divider: %d\n", stream1->yuv_frame);
-				printf("Y only output: %d\n", stream1->y_only);
-			}
-			printf("\n----------------------------- \n\n");
+	printf("\n\n------- V4L2 Infomation -------- \n");
+	printf("Device Name: %s\n", m2m->codec_dev);
+	printf("m2m_en: %d\n", m2m->m2m);
+	printf("codec_dev: %s\n", m2m->codec_dev);
+	printf("codec_fps: %d\n", m2m->codec_fps);
+	if(m2m->m2m)
+		printf("isp_fps: %d\n", m2m->isp_fps);
+	printf("width: %d\n", m2m->width);
+	printf("height: %d\n", m2m->height);
+	printf("scale: %d\n", m2m->scale);
+	printf("qp: %d\n", m2m->qp);
+	printf("outputpath: %s\n", outputpath);
+	if(yuv_output) {
+		printf("YUV Output enable: %d\n", yuv_output);
+		printf("YUV Rate divider: %d\n", stream1->yuv_frame);
+		printf("Y only output: %d\n", stream1->y_only);
+	}
+	printf("OSD detection: %d\n",osd_en);
+	if(osd_en){
+		printf("OSD pos X: %d\n",osd_x);
+		printf("OSD pos Y: %d\n",osd_y);
+		printf("OSD pos color: 0x%x\n",osd_color);
+		printf("OSD cam name: %s\n",cam_name);
+	}
 
+	printf("Motion detection threshold: %d\n",md_threshold);
+	printf("Motion start cmd: %s\n",syscmd_md_instant_start);
+	printf("Motion stop cmd: %s\n",syscmd_md_delayed_end);
+	printf("Num of no motion frames: %d\n",frames_with_no_motion_threshold);
+	printf("\n----------------------------- \n\n");
 
 	signal(SIGINT,sighandler);
 	/*--------------------------------------------------------
@@ -294,7 +353,6 @@ int main(int argc, char **argv)
 	pthread_detach(stream1->stream_thread);
 
 	while (1) {
-
 		if (quit) {
 			stream1->live = 0;
 			break;
@@ -302,27 +360,85 @@ int main(int argc, char **argv)
 
 		if ((stream1->state == 0)) {
 			stream1->state = 1;
-			printf("Start to snapshot\n");
+			begin_time = clock();
 
 			if(osd_en){
 				time(&timep);
 				p = localtime(&timep);
-				sprintf(osd_template, "%s %02d-%02d %02d:%02d:%02d",cam_name, (p->tm_mon + 1), p->tm_mday, p->tm_hour, p->tm_min, p->tm_sec);
+				char motion_char = ' ';
+				if(motion){
+					motion_char = 'M';
+				}
+				sprintf(osd_template, "%s %02d-%02d %02d:%02d:%02d %c",cam_name, (p->tm_mon + 1), p->tm_mday, p->tm_hour, p->tm_min, p->tm_sec,motion_char);
 				SetOSD(osd_template);
 			}
-		/*	memset(syscmd, 0x00, sizeof(syscmd)); */
-			/*sprintf(syscmd, "rm -f %s", SNAPSHOT_TRIGGER); */
-		/*	system(syscmd);      */
 		}
-
+		/////////////////////////////////////////////////////////////////////////////////
 		if ((stream1->state == 1)) {
-			printf("Snapshot is under working\n");
-			/*memset(syscmd, 0x00, sizeof(syscmd)); */
-			/*sprintf(syscmd, "rm -f %s", SNAPSHOT_TRIGGER);*/
-			/*system(syscmd);  */
-		}
+			snx_isp_md_int_get(&status); /* interrupt. if 0 timeout, else have motion */
+			//printf("MD %f us\n",(1000-( clock () - t1 ) / 33.888) * 1000);
+			if(0 == status){
+				motion=0;
+			} else {
+				motion=1;
+			}
 
-		sleep(1);
+			// change of motion to no mtion or inverse
+			if(motion!=pre_motion){
+				pre_motion=motion;
+				if(motion){
+					frames_with_no_motion=0;
+					printf("--> Motion instant start cmd\n");
+					if(strlen(syscmd_md_instant_start)){	// e.g. run warning function
+						system(syscmd_md_instant_start);
+					}
+				} else {
+					frames_with_motion=0;
+				}
+			}
+			//counter
+			if(motion){
+				if(strlen(syscmd_md_motion)){
+					printf("--> Motion cmd\n");
+					system(syscmd_md_motion);
+				}
+				if(frames_with_motion < frames_with_motion_threshold){
+					frames_with_motion++;
+					if(frames_with_motion == frames_with_motion_threshold){
+						printf("--> Motion delayed start cmd\n");
+						if(strlen(syscmd_md_delayed_start)){
+							system(syscmd_md_delayed_start);
+						}
+					}
+				}
+			} else {
+				if(frames_with_no_motion < frames_with_no_motion_threshold){
+					frames_with_no_motion++;
+					if(frames_with_no_motion == frames_with_no_motion_threshold){
+						printf("--> Motion delayed end cmd\n");
+						if(strlen(syscmd_md_delayed_end)){
+							system(syscmd_md_delayed_end);
+						}
+					} else {
+						printf("--> Motion end %i/%i\n",frames_with_no_motion,frames_with_no_motion_threshold);
+					}
+				}
+			}
+			/////////////////////////////////////////////////////////////////////////////////
+			end_time = clock();
+			// 40.000 seams to be about 1m
+			remaining_wait_us = (1000-( end_time - begin_time ) / 40.000) * 1000;
+			//printf("remaining %f us\n",remaining_wait_us);
+			if(remaining_wait_us>0){
+				//if(remaining_wait_us==1000000){
+				//	remaining_wait_us=600000;
+				//}
+				usleep(remaining_wait_us);
+			}
+		}
+		//sleep(1);
+		//p = localtime(&timep);
+		//printf("%s %02d-%02d %02d:%02d:%02d\n",cam_name, (p->tm_mon + 1), p->tm_mday, p->tm_hour, p->tm_min, p->tm_sec);
 	}
 
 	/*--------------------------------------------------------
@@ -330,6 +446,5 @@ int main(int argc, char **argv)
 	---------------------------------------------------------*/
 	/* Free the stream configs */
 	free(stream1);
-
-    return ret;
+	return ret;
 }
