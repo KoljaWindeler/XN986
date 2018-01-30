@@ -138,10 +138,12 @@ int main(int argc, char **argv)
 	char syscmd_md_delayed_start[150];
 	char syscmd_md_motion[150];
 	char syscmd_md_delayed_end[150];
+	char syscmd_every_frame[150];
 	memset(syscmd_md_instant_start, 0x00, sizeof(syscmd_md_instant_start));
 	memset(syscmd_md_delayed_start, 0x00, sizeof(syscmd_md_delayed_start));
 	memset(syscmd_md_motion, 0x00, sizeof(syscmd_md_motion));
 	memset(syscmd_md_delayed_end, 0x00, sizeof(syscmd_md_delayed_end));
+	memset(syscmd_every_frame, 0x00, sizeof(syscmd_every_frame));
 	unsigned int mask[6];
 	//unsigned int reports[6];
 	int md_threshold = 320;
@@ -156,6 +158,8 @@ int main(int argc, char **argv)
 	int motion=0;
 	int pre_motion=0;
 
+	// timing
+	int still_delay_ms=1000;
 	clock_t begin_time = clock();
 	clock_t end_time = clock();
 
@@ -193,7 +197,7 @@ int main(int argc, char **argv)
 	stream1->yuv_frame = YUV_DIV_RATE;
 	stream1->y_only = 0;
 
-	while ((c = getopt (argc, argv, "hmo:i:f:W:H:q:N:b:c:e:T:j:k:l:m:M:C:X:Y:n:s:drv:y")) != -1)
+	while ((c = getopt (argc, argv, "hmo:i:f:W:H:q:N:b:c:e:T:j:k:l:m:M:C:X:Y:n:s:t:u:drv:y")) != -1)
 	{
 		switch (c)
 		{
@@ -203,6 +207,7 @@ int main(int argc, char **argv)
 			case 'l': strcpy(syscmd_md_delayed_start, optarg); 					break;
 			case 'M': strcpy(syscmd_md_motion, optarg); 								break;
 			case 'c': strcpy(syscmd_md_delayed_end, optarg); 						break;
+			case 't': strcpy(syscmd_every_frame, optarg);								break;
 			case 'T': md_threshold = atoi(optarg); 											break;
 			case 'j': frames_with_no_motion_threshold = atoi(optarg); 	break;
 			case 'k': frames_with_motion_threshold = atoi(optarg); 			break;
@@ -210,6 +215,7 @@ int main(int argc, char **argv)
 			case 'C': osd_color=atoi(optarg);				 										break;
 			case 'X':	osd_x = atoi(optarg); 														break;
 			case 'Y': osd_y = atoi(optarg); 														break;
+			case 'u': still_delay_ms = atoi(optarg); 										break;
 
 			case 'm':	m2m->m2m = 1; 																		break;
 			case 'i':	m2m->isp_fps = atoi(optarg);  										break;
@@ -242,18 +248,20 @@ int main(int argc, char **argv)
 						"\t-r		YUV data output enable\n"
 						"\t-v		YUV capture rate divider (default is 5)\n"
 
-						"\t-b		Command to execute on motion instantly (default is none)\n"
-						"\t-l		Command to execute after '-k' motion frames (default is none)\n"
-						"\t-M		Command to execute on each motion frames (default is none)\n"
-						"\t-c		Command to execute afer '-j' no motion frames (default is none)\n"
 						"\t-T		Motion detection threshold (default is 320)\n"
 						"\t-j		Num of no motion frames before calling motion end command (default is 5)\n"
 						"\t-k		Num of motion frames before calling motion start command (default is 2)\n"
+						"\t-t		Command to execute on each frame (default is none)\n"
+						"\t-b		Command to execute on motion instantly (default is none)\n"
+						"\t-M		Command to execute on each motion frames (default is none)\n"
+						"\t-l		Command to execute after '-k' motion frames (default is none)\n"
+						"\t-c		Command to execute afer '-j' no motion frames (default is none)\n"
 						"\t-N		Cam name for OSD\n"
 						"\t-e		Overlay on/off (1/0) (default is 1)\n"
 						"\t-X		Overlay x-position (default is -1 = center)\n"
 						"\t-Y		Overlay y-position (default is 0)\n"
 						"\t-C		Overlay color (default is 0x00FF00)\n"
+						"\t-u		Delay between snapshots [ms] (default is 1000)\n"
 
 						"\tM2M Example:   %s -m -i 30 -f 30 -q 120 /dev/video1\n"
 		        "\tcapture Example:   %s -n 1 -q 120 /dev/video1\n"
@@ -383,6 +391,10 @@ int main(int argc, char **argv)
 				motion=1;
 			}
 
+			if(strlen(syscmd_every_frame)){	// e.g. send to server
+				system(syscmd_every_frame);
+			}
+
 			// change of motion to no mtion or inverse
 			if(motion!=pre_motion){
 				pre_motion=motion;
@@ -426,8 +438,8 @@ int main(int argc, char **argv)
 			}
 			/////////////////////////////////////////////////////////////////////////////////
 			end_time = clock();
-			// 40.000 seams to be about 1m
-			remaining_wait_us = (1000-( end_time - begin_time ) / 40.000) * 1000;
+			// 40.000 seams to be about 1sec
+			remaining_wait_us = (still_delay_ms-( end_time - begin_time ) / 40.000) * 1000;
 			//printf("remaining %f us\n",remaining_wait_us);
 			if(remaining_wait_us>0){
 				//if(remaining_wait_us==1000000){
