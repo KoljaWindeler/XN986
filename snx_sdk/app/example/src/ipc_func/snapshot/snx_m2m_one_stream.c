@@ -232,7 +232,7 @@ int main(int argc, char **argv)
 			case 'h':
 			default:
 			{
-				printf("Usage: %s [options]/n\n"
+				printf("Usage: %s [options]\n"
 				"Version: %s\n"
 				"Options:\n"
 						"\t-h		Print this message\n"
@@ -255,7 +255,7 @@ int main(int argc, char **argv)
 						"\t-b		Command to execute on motion instantly (default is none)\n"
 						"\t-M		Command to execute on each motion frames (default is none)\n"
 						"\t-l		Command to execute after '-k' motion frames (default is none)\n"
-						"\t-c		Command to execute afer '-j' no motion frames (default is none)\n"
+						"\t-c		Command to execute after '-j' no motion frames (default is none)\n"
 						"\t-N		Cam name for OSD\n"
 						"\t-e		Overlay on/off (1/0) (default is 1)\n"
 						"\t-X		Overlay x-position (default is -1 = center)\n"
